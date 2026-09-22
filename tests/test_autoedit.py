@@ -269,7 +269,8 @@ class FFmpegTests(unittest.TestCase):
         self.assertEqual(result['files'], 2)
         self.assertEqual(result['errors'],0)
 
-    @unittest.skipUnless(importlib.util.find_spec('pyJianYingDraft'), 'Optional pyJianYingDraft not installed')
+    @unittest.skipUnless(sys.platform == 'darwin' and importlib.util.find_spec('pyJianYingDraft'),
+                         'macOS + optional pyJianYingDraft required')
     def test_real_jianying_draft(self):
         data = copy.deepcopy(self.data)
         data['clips'][1]['fit']='pad'

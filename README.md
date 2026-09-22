@@ -16,8 +16,9 @@
 ```bash
 git clone https://github.com/zc1018/AutoEdit-Agent.git
 cd AutoEdit-Agent
-python -m venv .venv
-# 激活虚拟环境后；FFmpeg / FFprobe 需另行安装并加入 PATH。
+python3 -m venv .venv
+source .venv/bin/activate
+# FFmpeg / FFprobe 需另行安装并加入 PATH。
 python scripts/install_skills.py
 python skills/autoedit-agent/scripts/autoedit.py doctor --backend ffmpeg
 ```
@@ -70,8 +71,10 @@ python skills/autoedit-agent/scripts/autoedit.py validate "edit-blueprint.json"
 python skills/autoedit-agent/scripts/autoedit.py build "edit-blueprint.json" --backend ffmpeg --output "delivery-v1" --dry-run
 python skills/autoedit-agent/scripts/autoedit.py build "edit-blueprint.json" --backend ffmpeg --output "delivery-v1" --approve
 
-# 5. 同一份兼容蓝图，也可以改为输出剪映草稿。
+# 5. 同一份兼容蓝图，也可以改为输出 macOS 剪映草稿。
+python skills/autoedit-agent/scripts/autoedit.py doctor --backend jianying
 python skills/autoedit-agent/scripts/autoedit.py build "edit-blueprint.json" --backend jianying --output "jianying-v1" --approve
+# 若剪映草稿目录改过位置：追加 --draft-root "/你的/com.lveditor.draft"
 ```
 
 `--output` 是**新的文件夹**，不是 MP4 文件名。已有目录一律拒绝覆盖。
