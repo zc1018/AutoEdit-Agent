@@ -1,11 +1,11 @@
-# AutoEdit Agent · FFmpeg / 剪映双后端 Skill
+# AutoEdit Agent · FFmpeg / macOS 剪映双后端 Skill
 
 从素材审查、文案、可选配音到剪辑蓝图与交付审计。**默认不需要达芬奇、Resolve Studio、MCP 或模型 API。**
 
 ```text
 视频 / 音频 / 图片 → 素材证据与文案 → 通用剪辑蓝图
                                       ├─ FFmpeg → MP4 成片 + 字幕 + 审计
-                                      └─ 剪映   → 可继续编辑的新草稿 + 审计
+                                      └─ macOS 剪映 → 可继续编辑的原生草稿 + 审计
 ```
 
 这次改造不是只改提示词：新增了可执行的双后端 CLI、严格蓝图校验、真实 FFmpeg
@@ -31,7 +31,7 @@ python skills/autoedit-agent/scripts/autoedit.py doctor --backend ffmpeg
 FFmpeg 本地剪辑没有 pip 依赖。仅在需要时安装可选能力：
 
 ```bash
-python -m pip install -r requirements-jianying.txt  # 剪映草稿
+python -m pip install -r requirements-jianying.txt  # macOS 剪映草稿
 python -m pip install -r requirements-api.txt       # 原有云端素材分析 / TTS
 ```
 
@@ -45,7 +45,7 @@ python -m pip install -r requirements-api.txt       # 原有云端素材分析 /
 
 ```text
 使用 $autoedit-agent，使用已经确认的剪辑蓝图。
-这次选择剪映，生成一个新的可编辑草稿，我要继续调整字幕和音乐。
+这次选择剪映，生成一个 macOS 剪映专业版可继续编辑的草稿，我要继续调整字幕和音乐。
 不要覆盖原素材或已有工程，也不要替我自动导出。
 ```
 
@@ -79,16 +79,19 @@ FFmpeg 输出 `final.mp4`、`edit-blueprint.json`、`audit.json`，有字幕时�
 默认字幕为可开关的 MP4 字幕轨；播放器可能需要手动开启。加 `--burn-captions`
 可烧录字幕，需要带 libass 的 FFmpeg 和本地合适字体。字体不随仓库分发。
 
-剪映命令返回 `draft_directory`。把这个完整的新草稿文件夹复制到 **Windows 剪映**
-配置的草稿根目录，再在软件中刷新、打开、检查和导出。草稿引用本机绝对素材路径，
-不自动打包原视频；跨电脑使用需复制素材并重新链接。
+剪映后端现在明确定位 **macOS 剪映专业版**。它输出 `draft_info.json`，并把引用的
+视频、图片和音频复制到草稿自己的 `Resources/`，避免 macOS 沙盒无法访问外部素材。
+默认目标草稿根目录是 `~/Movies/JianyingPro/User Data/Projects/com.lveditor.draft`；
+也可以通过 `JY_DRAFT_ROOT` 或 `--draft-root` 指定。生成完成后，在剪映完全退出时把
+整个 `draft_directory` 放进该根目录，再重新打开剪映检查并手动导出。当前不会改写
+`root_meta_info.json`，所以草稿是否被你当前客户端发现仍需真实 Mac 端验收。
 
 ## 已实现与边界
 
 | 项目 | FFmpeg | 剪映 |
 |---|---|---|
-| 交付 | 直接 MP4 成片 | 新的可编辑草稿 |
-| 视频 / 图片 | 连续单视觉轨、硬切、图片停留 | 原生视频/图片片段 |
+| 交付 | 直接 MP4 成片 | macOS 剪映可编辑草稿（`draft_info.json`） |
+| 视频 / 图片 | 连续单视觉轨、硬切、图片停留 | 原生视频/图片片段，素材自包含到 `Resources/` |
 | 配音 / BGM / 音效 | 独立时间位置、混音、音量、音频淡入淡出 | 独立音频轨、音量和淡入淡出 |
 | 恒定变速 | 0.25–4 倍 | 原生源范围与目标范围对应变速 |
 | 画幅 | 居中留边或裁切 | 原生默认适配，仅接受 `fit=pad` |
@@ -99,9 +102,11 @@ FFmpeg 输出 `final.mp4`、`edit-blueprint.json`、`audit.json`，有字幕时�
 关键帧特效或剪映模板继承。遇到这些字段会明确拒绝，而不是静默丢弃。需要保留这些
 效果时，应调整已批准蓝图或列为剪映内的手工步骤。输出帧率为整数；输入可混合帧率。
 
-**剪映兼容说明：**使用可选的 `pyJianYingDraft==0.3.0`，定位为新建 Windows 剪映草稿。
-上游明确区分草稿生成和 GUI 自动导出，并限制 Linux/macOS 生成草稿的目标环境。
-不能把草稿 JSON 写成功说成所有剪映版本已验证，也不宣称兼容 CapCut 或 macOS 原生剪映。
+**剪映兼容说明：**这里不再沿用上游“Mac 生成、Windows 打开”的定位。适配层先用
+`pyJianYingDraft==0.3.0` 生成基础时间线，再转换成 **macOS 剪映专业版**使用的
+`draft_info.json` 入口、Mac platform 标记、媒体池登记，并把素材自包含到 `Resources/`。
+如果本机能找到可读的旧 Mac 草稿，会复用其 platform 设备字段；找不到时会明确提示
+兼容性风险。不能把草稿 JSON 写成功说成当前剪映版本已经通过 GUI 验收，也不宣称兼容 CapCut。
 详见 [后端说明](skills/autoedit-agent/references/backends.md)。
 
 ## 校验与测试
@@ -117,8 +122,9 @@ FFmpeg 导出后检查画幅、帧数、时长和音视频流，并完整解码�
 python -m unittest discover -s tests -v
 ```
 
-本次本地验证环境没有剪映桌面端，也没有安装可选草稿库。FFmpeg 使用生成的真实
-视频/图片/音频完成集成测试；剪映真实草稿测试会在缺依赖时明确跳过，不能算通过。
+本次自动化验证环境不是 macOS 剪映桌面端。FFmpeg 使用生成的真实视频/图片/音频
+完成集成测试；macOS 剪映部分可做结构级校验，但能否被你当前 Mac 上的剪映版本正常
+发现、打开和播放，仍需要真实客户端验收。
 
 ## 文档与兼容
 
@@ -132,11 +138,11 @@ python -m unittest discover -s tests -v
 
 An editor-neutral Agent Skill: inspect footage, ground a script in evidence,
 create one shared edit blueprint, then either render an MP4 through FFmpeg or
-write an editable Windows Jianying draft through an optional adapter. Resolve
+write an editable macOS Jianying Pro draft through an optional adapter. Resolve
 and MCP are not required. Basic rendering needs only Python 3.10+, FFmpeg and
 FFprobe. Existing outputs and original media are not overwritten. Unsupported
-operations fail explicitly. Jianying GUI opening/export remains a manual,
-version-dependent verification step, not a tested automatic-export promise.
+operations fail explicitly. The macOS adapter writes `draft_info.json`, bundles media into the draft, and targets the native
+Jianying Pro draft root. GUI opening/export remains a manual, version-dependent verification step, not a tested automatic-export promise.
 
 ## Credits / License
 

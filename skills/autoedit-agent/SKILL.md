@@ -1,6 +1,6 @@
 ---
 name: autoedit-agent
-description: End-to-end, source-safe video editing with a user-selected FFmpeg or Jianying backend, without DaVinci Resolve or MCP. Use for footage review, vlog and documentary editing, scripts, optional narration, timestamped edit blueprints, direct MP4 rendering, editable Jianying drafts, delivery audits, and pickup-shot recommendations.
+description: End-to-end, source-safe video editing with a user-selected FFmpeg or Jianying backend, without DaVinci Resolve or MCP. Use for footage review, vlog and documentary editing, scripts, optional narration, timestamped edit blueprints, direct MP4 rendering, editable macOS Jianying Pro drafts, delivery audits, and pickup-shot recommendations.
 ---
 
 # AutoEdit Agent
@@ -13,16 +13,18 @@ resolve its absolute path when the working directory differs.
 ## Select the deliverable first
 
 - `ffmpeg`: default when unspecified; render `final.mp4` without opening a GUI.
-- `jianying`: explicitly requested editable Windows Jianying draft; requires the
-  optional `pyJianYingDraft` package. It does not mean automatic app export.
+- `jianying`: explicitly requested **macOS Jianying Pro** editable draft. It writes
+  `draft_info.json`, bundles source media into the draft's `Resources/`, and requires
+  optional `pyJianYingDraft`. App export remains manual.
 - `auto`: deterministically selects FFmpeg, never guesses from installed apps.
 
 Honor a user's explicit backend. If it is unavailable, explain the missing
 component; do not silently substitute another backend. A blueprint alone remains
 possible, but label it as planning rather than a finished edit.
 
-Read `references/backends.md` before choosing an implementation. CapCut and
-macOS-native Jianying project compatibility are NOT claimed.
+Read `references/backends.md` before choosing an implementation. The Jianying
+backend is intentionally Mac-first; Windows Jianying and CapCut are outside its
+supported target. Desktop compatibility still requires a real Mac Jianying check.
 
 ## Intake and approvals
 
@@ -123,12 +125,13 @@ python scripts/autoedit.py doctor --backend jianying
 python scripts/autoedit.py build "<blueprint.json>" --backend jianying --output "<new-draft-delivery-dir>" --approve
 ```
 
-The JSON result gives `draft_directory`. Copy that complete NEW draft folder into
-the Windows Jianying draft root, refresh/open it, inspect it, then export in the app.
-Do not overwrite another folder while copying. Source paths are absolute and media
-is not bundled: moving files/machines requires copying media and relinking paths.
-Do not claim the app opened the draft unless observed. Do not parse, overwrite,
-or attempt to bypass protection of a user's existing encrypted draft.
+Run this backend on the target Mac. It writes a macOS-style `draft_info.json` and
+bundles media into the draft's own `Resources/`. The JSON result reports
+`target_draft_root`, defaulting to `~/Movies/JianyingPro/User Data/Projects/com.lveditor.draft`;
+override with `JY_DRAFT_ROOT` or `--draft-root` when Jianying uses another location.
+With Jianying fully closed, place the complete NEW `draft_directory` under that root,
+then reopen/refresh, inspect, and export manually. Do not claim the app opened it
+unless observed, and do not parse or bypass protected existing drafts.
 
 ## 5. Verify, then recommend pickup shots
 
@@ -138,8 +141,9 @@ and it decoded without errors. It does NOT establish that the story, lip-sync,
 color, subjective audio quality, or Chinese font rendering is correct. Sample
 boundaries, review subtitles, and listen to representative sections.
 
-Jianying success means a JSON draft was written and read back for segment count
-and duration; app compatibility remains pending a real editor check. Failure is
+Jianying success means the macOS-target `draft_info.json`, media registry and
+self-contained `Resources/` were written and read back for segment count/duration;
+app compatibility remains pending a real Mac editor check. Failure is
 recorded in `FAILED.json` and must never be described as a finished delivery.
 
 Compare script beats, the actual delivered timeline, and the COMPLETE reviewed

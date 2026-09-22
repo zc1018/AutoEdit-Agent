@@ -120,6 +120,40 @@ class SchemaTests(unittest.TestCase):
         with patch.object(ae, 'probe', side_effect=AssertionError('unexpected probe')):
             self.load()
 
+    def test_macify_draft_uses_draft_info_and_bundled_resources(self):
+        draft_dir = self.root/'stage'/'AutoEdit-mac'
+        draft_dir.mkdir(parents=True)
+        source_video = self.root/'source.mov'
+        source_audio = self.root/'voice.wav'
+        source_video.write_bytes(b'video')
+        source_audio.write_bytes(b'audio')
+        content = {
+            'duration': 1000000,
+            'platform': {},
+            'last_modified_platform': {},
+            'materials': {
+                'videos': [{'path': str(source_video), 'duration': 1000000,
+                            'width': 320, 'height': 240, 'type': 'video'}],
+                'audios': [{'path': str(source_audio), 'duration': 1000000}],
+            },
+            'tracks': [],
+        }
+        meta = {'draft_materials': [{'type': 0, 'value': []}]}
+        (draft_dir/'draft_content.json').write_text(json.dumps(content), encoding='utf-8')
+        (draft_dir/'draft_meta_info.json').write_text(json.dumps(meta), encoding='utf-8')
+        root = self.root/'Mac Drafts'
+        root.mkdir()
+        saved, warnings = ae._macify_jianying_draft(draft_dir, 'AutoEdit-mac', root)
+        self.assertTrue((draft_dir/'draft_info.json').is_file())
+        self.assertEqual(saved['platform']['os'], 'mac')
+        self.assertTrue((draft_dir/'Resources'/'source.mov').is_file())
+        self.assertTrue((draft_dir/'Resources'/'voice.wav').is_file())
+        self.assertEqual(saved['materials']['videos'][0]['path'],
+                         str(root/'AutoEdit-mac'/'Resources'/'source.mov'))
+        meta_saved = json.loads((draft_dir/'draft_meta_info.json').read_text())
+        self.assertEqual(len(meta_saved['draft_materials'][0]['value']), 2)
+        self.assertTrue(warnings)
+
 
 @unittest.skipUnless(ae.doctor('ffmpeg')['ready'], 'FFmpeg + FFprobe required')
 class FFmpegTests(unittest.TestCase):
@@ -242,8 +276,8 @@ class FFmpegTests(unittest.TestCase):
         path = self.root/'jy-real.json'
         path.write_text(json.dumps(data))
         result = ae.build(path, self.root/'jy-real', 'jianying')
-        self.assertEqual(result['status'],'draft_written_not_editor_verified')
-        saved = json.loads((Path(result['draft_directory'])/'draft_content.json').read_text())
+        self.assertEqual(result['status'],'macos_draft_written_not_editor_verified')
+        saved = json.loads((Path(result['draft_directory'])/'draft_info.json').read_text())
         self.assertEqual(saved['duration'], 3000000)
         self.assertEqual(len([s for t in saved['tracks'] for s in t['segments']]), 5)
 

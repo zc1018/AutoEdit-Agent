@@ -11,6 +11,7 @@ import hashlib
 import importlib.util
 import json
 import math
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -312,11 +313,145 @@ def ffmpeg_build(data: dict, media: dict, out: Path, burn: bool) -> dict:
             'human_review_required': ['story', 'sync and loudness', 'subtitle appearance', 'picture quality']}
 
 
-def jianying_build(data: dict, out: Path) -> dict:
-    """Optional native draft adapter; deliberately does not automate the editor UI."""
+def macos_jianying_root(override: str | Path | None = None) -> Path:
+    """Target the native macOS Jianying Pro draft library, not the Windows layout."""
+    if override:
+        return Path(override).expanduser().resolve()
+    if os.getenv('JY_DRAFT_ROOT'):
+        return Path(os.environ['JY_DRAFT_ROOT']).expanduser().resolve()
+    home = Path.home()
+    candidates = [
+        home/'Movies'/'JianyingPro'/'User Data'/'Projects'/'com.lveditor.draft',
+        home/'Movies'/'JianyingPro Drafts',
+    ]
+    return next((p for p in candidates if p.is_dir()), candidates[0])
+
+
+def _mac_platform(draft_root: Path) -> tuple[dict, bool]:
+    """Reuse a local plaintext Mac platform fingerprint when one is available."""
+    if draft_root.is_dir():
+        for child in sorted(draft_root.iterdir()):
+            info = child/'draft_info.json'
+            if not info.is_file():
+                continue
+            try:
+                platform = json.loads(info.read_text(encoding='utf-8')).get('platform', {})
+            except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+                continue
+            if isinstance(platform, dict) and platform.get('os') == 'mac':
+                keep = {k: platform[k] for k in
+                        ('os', 'app_version', 'device_id', 'hard_disk_id', 'mac_address')
+                        if k in platform}
+                return keep, bool(keep.get('device_id'))
+    return {'os': 'mac', 'app_version': '5.9.0'}, False
+
+
+def _safe_resource_name(name: str, used: set[str]) -> str:
+    source = Path(name)
+    stem, suffix = source.stem or 'media', source.suffix
+    candidate, index = f'{stem}{suffix}', 2
+    while candidate.casefold() in used:
+        candidate = f'{stem}-{index}{suffix}'
+        index += 1
+    used.add(candidate.casefold())
+    return candidate
+
+
+def _macify_jianying_draft(draft_dir: Path, draft_name: str,
+                           draft_root: Path) -> tuple[dict, list[str]]:
+    """Convert the serializer staging output into a macOS Jianying draft."""
+    content_path = draft_dir/'draft_content.json'
+    meta_path = draft_dir/'draft_meta_info.json'
+    content = json.loads(content_path.read_text(encoding='utf-8'))
+    meta = json.loads(meta_path.read_text(encoding='utf-8'))
+    platform, fingerprinted = _mac_platform(draft_root)
+    for key in ('platform', 'last_modified_platform'):
+        base = content.get(key) if isinstance(content.get(key), dict) else {}
+        content[key] = {**base, **platform, 'os': 'mac'}
+
+    resources = draft_dir/'Resources'
+    resources.mkdir(exist_ok=False)
+    future_resources = draft_root/draft_name/'Resources'
+    used: set[str] = set()
+    copied: dict[str, str] = {}
+    total_size = 0
+    for kind in ('videos', 'audios'):
+        for material in content.get('materials', {}).get(kind, []):
+            raw = material.get('path')
+            if not raw:
+                raise ValueError(f'Mac Jianying material in {kind} has no source path')
+            source = Path(raw).expanduser().resolve()
+            if not source.is_file():
+                raise ValueError(f'Mac Jianying material missing before bundling: {source}')
+            key = str(source)
+            if key not in copied:
+                name = _safe_resource_name(source.name, used)
+                target = resources/name
+                shutil.copy2(source, target)
+                total_size += target.stat().st_size
+                copied[key] = str(future_resources/name)
+            material['path'] = copied[key]
+
+    now_us = int(__import__('time').time() * 1_000_000)
+    records = []
+    for kind, default_type in (('videos', 'video'), ('audios', 'music')):
+        for material in content.get('materials', {}).get(kind, []):
+            records.append({
+                'create_time': now_us//1_000_000,
+                'duration': material.get('duration', 0),
+                'extra_info': material.get('material_name') or material.get('name')
+                              or Path(material['path']).name,
+                'file_Path': material['path'],
+                'height': material.get('height', 0),
+                'id': hashlib.sha256((material['path']+str(now_us)).encode()).hexdigest()[:32],
+                'import_time': now_us//1_000_000,
+                'import_time_ms': now_us,
+                'item_source': 1,
+                'md5': '',
+                'metetype': 'photo' if material.get('type') == 'photo' else default_type,
+                'roughcut_time_range': {'duration': -1, 'start': -1},
+                'sub_time_range': {'duration': -1, 'start': -1},
+                'type': 0,
+                'width': material.get('width', 0),
+            })
+
+    final_dir = draft_root/draft_name
+    meta.update({
+        'draft_fold_path': str(final_dir),
+        'draft_root_path': str(draft_root),
+        'draft_name': draft_name,
+        'tm_draft_create': now_us,
+        'tm_draft_modified': now_us,
+        'tm_duration': content.get('duration', 0),
+        'draft_timeline_materials_size': total_size,
+        'draft_timeline_materials_size_': total_size,
+    })
+    groups = meta.setdefault('draft_materials', [])
+    material_group = next((g for g in groups
+                           if isinstance(g, dict) and g.get('type') == 0), None)
+    if material_group is None:
+        material_group = {'type': 0, 'value': []}
+        groups.append(material_group)
+    material_group['value'] = records
+
+    text = json.dumps(content, ensure_ascii=False, indent=4)
+    content_path.write_text(text, encoding='utf-8')
+    (draft_dir/'draft_info.json').write_text(text, encoding='utf-8')
+    meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=4), encoding='utf-8')
+    warnings = []
+    if not fingerprinted:
+        warnings.append('No plaintext local Mac draft fingerprint found; verify this draft in Jianying.')
+    if not draft_root.is_dir():
+        warnings.append(f'Target macOS Jianying draft root does not exist yet: {draft_root}')
+    return content, warnings
+
+
+def jianying_build(data: dict, out: Path,
+                   draft_root: str | Path | None = None) -> dict:
+    """Build a self-contained draft specifically for macOS Jianying Pro."""
     import pyJianYingDraft as draft
     p = data['project']
-    # The CLI exclusively creates out. DraftFolder itself must create its child.
+    target_root = macos_jianying_root(draft_root)
     folder = draft.DraftFolder(str(out))
     draft_name = 'AutoEdit-' + out.name
     script = folder.create_draft(draft_name, p['width'], p['height'], fps=p['fps'],
@@ -328,10 +463,11 @@ def jianying_build(data: dict, out: Path) -> dict:
         target = draft.Timerange(us(c['timeline_in_seconds']), us(duration(c)))
         kwargs = {'volume': c['volume']}
         if c['media_type'] != 'image':
-            kwargs['source_timerange'] = draft.Timerange(us(c['source_in_seconds']),
-                         us(c['source_out_seconds']-c['source_in_seconds']))
+            kwargs['source_timerange'] = draft.Timerange(
+                us(c['source_in_seconds']),
+                us(c['source_out_seconds']-c['source_in_seconds']))
         if c['media_type'] == 'audio':
-            name = f'A{i+1}'  # Independent tracks permit intentional audio overlap.
+            name = f'A{i+1}'
             script.add_track(draft.TrackType.audio, name)
             segment = draft.AudioSegment(c['source_path'], target, **kwargs)
         else:
@@ -343,39 +479,58 @@ def jianying_build(data: dict, out: Path) -> dict:
     if data['captions']:
         script.add_track(draft.TrackType.text, 'Captions')
         for c in data['captions']:
-            segment = draft.TextSegment(c['text'], draft.Timerange(us(c['start_seconds']),
-                       us(c['end_seconds']-c['start_seconds'])),
-                       clip_settings=draft.ClipSettings(transform_y=-0.8))
+            segment = draft.TextSegment(
+                c['text'],
+                draft.Timerange(us(c['start_seconds']),
+                                us(c['end_seconds']-c['start_seconds'])),
+                clip_settings=draft.ClipSettings(transform_y=-0.8))
             script.add_segment(segment, 'Captions')
     script.save()
-    path = out / draft_name / 'draft_content.json'
-    saved = json.loads(path.read_text(encoding='utf-8'))
+    draft_dir = out/draft_name
+    saved, warnings = _macify_jianying_draft(draft_dir, draft_name, target_root)
     segments = [s for t in saved['tracks'] for s in t['segments']]
     expected = len(data['clips']) + len(data['captions'])
     total = visuals(data)[-1]['timeline_out_seconds']
     if len(segments) != expected or abs(saved['duration']-us(total)) > 10:
-        raise ValueError('Draft readback failed segment-count/duration audit')
-    return {'status': 'draft_written_not_editor_verified', 'backend': 'jianying',
-            'draft_directory': str(out/draft_name), 'segments': len(segments),
-            'duration_seconds': total, 'human_review_required': [
-                'Copy the draft folder to the Windows Jianying draft root and refresh the editor',
-                'Check media paths, picture framing, audio, and captions in the editor',
-                'Export from Jianying manually; no automatic UI export is claimed',
-                'Do not move source files; cross-machine delivery requires media relinking']}
+        raise ValueError('macOS Jianying draft readback failed segment-count/duration audit')
+    return {
+        'status': 'macos_draft_written_not_editor_verified',
+        'backend': 'jianying',
+        'draft_directory': str(draft_dir),
+        'target_draft_root': str(target_root),
+        'expected_install_path': str(target_root/draft_name),
+        'entry_file': str(draft_dir/'draft_info.json'),
+        'segments': len(segments),
+        'duration_seconds': total,
+        'warnings': warnings,
+        'human_review_required': [
+            'This output targets macOS Jianying Pro and uses draft_info.json plus bundled Resources',
+            'Copy the complete draft folder into target_draft_root while Jianying is closed, then reopen it',
+            'Check media, framing, audio, captions, and draft visibility in the actual Mac app',
+            'Export from Jianying manually; macOS GUI auto-export is not claimed',
+        ],
+    }
 
 
-def doctor(backend: str) -> dict:
+def doctor(backend: str, draft_root: str | Path | None = None) -> dict:
     checks = {name: bool(shutil.which(name)) for name in ('ffmpeg', 'ffprobe')}
     checks['pyJianYingDraft'] = importlib.util.find_spec('pyJianYingDraft') is not None
     chosen = 'ffmpeg' if backend == 'auto' else backend
     checks['backend'] = chosen
-    checks['ready'] = checks['ffprobe'] and (checks['ffmpeg'] if chosen == 'ffmpeg' else checks['pyJianYingDraft'])
+    checks['host_macos'] = sys.platform == 'darwin'
+    if chosen == 'jianying':
+        root = macos_jianying_root(draft_root)
+        checks['target_draft_root'] = str(root)
+        checks['target_draft_root_exists'] = root.is_dir()
+        checks['ready'] = checks['ffprobe'] and checks['pyJianYingDraft'] and checks['host_macos']
+    else:
+        checks['ready'] = checks['ffprobe'] and checks['ffmpeg']
     checks['resolve_required'] = False
     return checks
 
 
 def build(path: Path, output: Path, backend: str | None, *, dry_run: bool = False,
-          burn: bool = False) -> dict:
+          burn: bool = False, draft_root: str | Path | None = None) -> dict:
     data, media = load_blueprint(path.resolve())
     chosen = backend or data.get('backend', 'auto')
     chosen = 'ffmpeg' if chosen == 'auto' else chosen
@@ -389,9 +544,11 @@ def build(path: Path, output: Path, backend: str | None, *, dry_run: bool = Fals
             raise ValueError('Jianying adapter supports native captions and fit=pad only; use FFmpeg for crop/burn')
     plan = {'backend': chosen, 'output': str(out), 'duration_seconds': visuals(data)[-1]['timeline_out_seconds'],
             'clips': len(data['clips']), 'captions': len(data['captions'])}
+    if chosen == 'jianying':
+        plan['target_draft_root'] = str(macos_jianying_root(draft_root))
     if dry_run:
-        return dict(plan, status='dry_run_no_files_written', readiness=doctor(chosen))
-    if not doctor(chosen)['ready']:
+        return dict(plan, status='dry_run_no_files_written', readiness=doctor(chosen, draft_root))
+    if not doctor(chosen, draft_root)['ready']:
         raise ValueError(f'{chosen} dependencies unavailable; run doctor and install only the requested backend')
     # Import optional dependency before any output mutation.
     if chosen == 'jianying':
@@ -404,7 +561,7 @@ def build(path: Path, output: Path, backend: str | None, *, dry_run: bool = Fals
         write_json(out/'edit-blueprint.json', data)
         if data['captions']:
             (out/'captions.srt').write_text(srt_text(data['captions']), encoding='utf-8')
-        audit = ffmpeg_build(data, media, out, burn) if chosen == 'ffmpeg' else jianying_build(data, out)
+        audit = ffmpeg_build(data, media, out, burn) if chosen == 'ffmpeg' else jianying_build(data, out, draft_root)
         write_json(out/'audit.json', audit)
         return audit
     except Exception as exc:
@@ -483,6 +640,7 @@ def main() -> int:
     sub = parser.add_subparsers(dest='command', required=True)
     d = sub.add_parser('doctor')
     d.add_argument('--backend', choices=['auto', 'ffmpeg', 'jianying'], default='auto')
+    d.add_argument('--draft-root', type=Path, help='macOS Jianying Pro draft root override')
     s = sub.add_parser('scan')
     s.add_argument('--input', action='append', required=True)
     s.add_argument('--output', type=Path, required=True)
@@ -501,10 +659,11 @@ def main() -> int:
     b.add_argument('--dry-run', action='store_true')
     b.add_argument('--approve', action='store_true', help='Explicitly authorize the previewed new output')
     b.add_argument('--burn-captions', action='store_true', help='FFmpeg only; requires libass and local fonts')
+    b.add_argument('--draft-root', type=Path, help='macOS Jianying Pro draft root override')
     args = parser.parse_args()
     try:
         if args.command == 'doctor':
-            result = doctor(args.backend)
+            result = doctor(args.backend, args.draft_root)
             print(json.dumps(result, ensure_ascii=False, indent=2))
             return 0 if result['ready'] else 2
         if args.command == 'scan':
@@ -518,7 +677,8 @@ def main() -> int:
         else:
             if not args.dry_run and not args.approve:
                 raise ValueError('Preview with --dry-run, then authorize the new output with --approve')
-            result = build(args.blueprint, args.output, args.backend, dry_run=args.dry_run, burn=args.burn_captions)
+            result = build(args.blueprint, args.output, args.backend, dry_run=args.dry_run, burn=args.burn_captions,
+                           draft_root=args.draft_root)
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
     except (ValueError, OSError, KeyError, TypeError) as exc:

@@ -4,9 +4,11 @@ The core `scripts/autoedit.py` is Python-standard-library-only. Install FFmpeg a
 FFprobe separately and put them on PATH. No model key, TTS key, Resolve install,
 MCP process, paid editor, or internet connection is required for local rendering.
 
-Optional Jianying: `python -m pip install pyJianYingDraft==0.3.0`. Upstream may also
-require platform media libraries (e.g. MediaInfo). Check `doctor --backend jianying`
-and the actual import/build result. The default installation does not install it.
+Optional macOS Jianying: `python -m pip install pyJianYingDraft==0.3.0`. The package
+is used as a base serializer; this repository post-processes its output into a Mac
+`draft_info.json` draft and self-contained `Resources/`. Run `doctor --backend jianying`
+on the target Mac. Set `JY_DRAFT_ROOT` when your Jianying draft library is not at the
+standard Movies path. The default installation does not install the optional package.
 
 Adapted original cloud helpers remain available in this skill as `analyze_frames.py` and
 `generate_tts.py`. They require `requests` and `python-dotenv` (repository
