@@ -1,0 +1,4 @@
+interface:
+  display_name: "AutoEdit Agent"
+  short_description: "无需达芬奇，用 FFmpeg 出片或生成剪映草稿"
+  default_prompt: "使用 $autoedit-agent，根据我的素材和目标制定剪辑蓝图，再用我选择的 FFmpeg 或剪映后端交付。"

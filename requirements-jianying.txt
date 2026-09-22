@@ -1,0 +1,2 @@
+# Optional macOS Jianying draft serializer. Never required by the FFmpeg backend.
+pyJianYingDraft==0.3.0

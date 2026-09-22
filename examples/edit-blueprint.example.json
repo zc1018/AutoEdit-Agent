@@ -1,0 +1,53 @@
+{
+  "schema_version": "2.0",
+  "backend": "auto",
+  "project": {
+    "name": "Example",
+    "fps": 30,
+    "width": 1920,
+    "height": 1080
+  },
+  "clips": [
+    {
+      "id": "shot-1",
+      "media_type": "video",
+      "source_path": "../media/camera.mp4",
+      "source_in_seconds": 2,
+      "source_out_seconds": 7,
+      "timeline_in_seconds": 0,
+      "timeline_out_seconds": 5,
+      "volume": 1,
+      "purpose": "Establish the scene"
+    },
+    {
+      "id": "photo-1",
+      "media_type": "image",
+      "source_path": "../media/photo.jpg",
+      "timeline_in_seconds": 5,
+      "timeline_out_seconds": 8,
+      "purpose": "Show the result"
+    },
+    {
+      "id": "voice-1",
+      "media_type": "audio",
+      "source_path": "../media/voice.wav",
+      "source_in_seconds": 0,
+      "source_out_seconds": 6,
+      "timeline_in_seconds": 1,
+      "timeline_out_seconds": 7,
+      "volume": 1,
+      "fade_in_seconds": 0.1,
+      "fade_out_seconds": 0.2
+    }
+  ],
+  "captions": [
+    {
+      "start_seconds": 1,
+      "end_seconds": 4,
+      "text": "An evidence-based caption"
+    }
+  ],
+  "notes": [
+    "Example paths are placeholders. Replace with reviewed local media before building."
+  ]
+}
