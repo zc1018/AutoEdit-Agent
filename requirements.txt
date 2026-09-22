@@ -1,2 +1,4 @@
-python-dotenv>=1.0.0
-requests>=2.31.0
+# Core editing uses Python 3.10+ standard library only.
+# Install FFmpeg and FFprobe separately; put both on PATH.
+# Optional cloud helpers: pip install -r requirements-api.txt
+# Optional Jianying adapter: pip install -r requirements-jianying.txt
